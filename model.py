@@ -8,6 +8,7 @@ TMI-Syn: Tri-Branch Highway Interaction with confidence-aware calibration
 and contrastive learning.
 """
 
+
 class Highway(nn.Module):
     r"""Highway Layers
     Args:
@@ -45,7 +46,6 @@ class DualInteract(nn.Module):
                                     num_highway_layers=2)
 
         hidden_dim = 1024
-
 
         self.trans_bit_nn = nn.Sequential(
             nn.LayerNorm(field_dim * embed_size),
@@ -103,7 +103,7 @@ class TMISyn(nn.Module):
         proj_dim = 256
         # dropout_rate = 0.2 # Now passed as argument
 
-        # Projections 门控多组学细胞系编码器
+        # Projection layers and gated multi-omics cell-line encoder.
         self.gated_cell_encoder = ProperGatedMultiOmicsEncoder(
             num_genes=4079, num_omics=6, hidden_dim=256, dropout=0.2
         )
@@ -154,7 +154,7 @@ class TMISyn(nn.Module):
         self.drug_cell_encoder = DrugInteractionMLP(hidden_dim=proj_dim, dropout=dropout_rate)
 
         # field_dim = 3: Drug1-Cell, Drug2-Cell, Drug1-Drug2
-        # 魔改点：扩展为3个交互场，让Highway网络真正“跑起来”
+        # Three interaction fields: drug1-cell, drug2-cell, and drug-drug.
         field_dim = 3
 
         # this is a HighWay module acutally.It can be called HighWay Module.
@@ -166,14 +166,14 @@ class TMISyn(nn.Module):
         )
 
         # === Confidence-Aware Dual Calibration (CADC) Modules ===
-        # Confidence Head: Predicts confidence score c ∈ [0, 1]
+        # Confidence Head: Predicts confidence score c in [0, 1]
         self.confidence_head = nn.Sequential(
             nn.Linear(proj_dim * field_dim, 128),
             nn.ReLU(),
             nn.Linear(128, 1),
             nn.Sigmoid()
         )
-        
+
         # Feature Calibration Gate: Calibrates features based on confidence
         self.feature_calibration = nn.Sequential(
             nn.Linear(proj_dim * field_dim, proj_dim * field_dim),
@@ -186,7 +186,7 @@ class TMISyn(nn.Module):
         self.contrastive_head = nn.Sequential(
             nn.Linear(proj_dim * field_dim, proj_dim),
             nn.ReLU(),
-            nn.Linear(proj_dim, 128) # Project to 128-dim space for InfoNCE
+            nn.Linear(proj_dim, 128)  # Project to 128-dim space for InfoNCE
         )
 
     def forward(self, drug1_1d_vectors,drug2_1d_vectors,context,drug1_2d_vectors,drug2_2d_vectors,drug1_smi_vectors,drug2_smi_vectors,drug1_fp_vectors,drug2_fp_vectors):
@@ -211,29 +211,20 @@ class TMISyn(nn.Module):
         drug1_2d_global = self.projection_2d_1(drug1_2d_vectors)
         drug2_2d_global = self.projection_2d_2(drug2_2d_vectors)
 
-        # =========================================================================
-        # Stream 1: Global Interaction (The "Anchor" - Deep Semantic Logic)
-        # =========================================================================
-
         # Fuse SMILES + 2D Global -> Enhanced Drug Global
         drug1_global = self.drug_encoder1(drug1_1d_global, drug1_2d_global)  # (B, 256)
         drug2_global = self.drug_encoder1(drug2_1d_global, drug2_2d_global)  # (B, 256)
-
-        # =========================================================================
-        # Tri-Branch Highway Interaction (Multi-View Synergy)
-        # 魔改核心：构建协同作用的视图
-        # =========================================================================
 
         # 1. Drug-Drug Interaction View (Molecular Compatibility)
         d1_d2_view = self.ddi_encoder(drug1_global, drug2_global)  # (B, 256)
 
         # 2. Drug-Cell Interaction Views (Biological Response)
-        # Shared weights for symmetry (Siamese-like) - 保持生物学对称性
+        # Shared weights for symmetry.
         d1_cell_view = self.drug_cell_encoder(drug1_global, cell_feature)  # (B, 256)
         d2_cell_view = self.drug_cell_encoder(drug2_global, cell_feature)  # (B, 256)
 
         # Stack Views: [Drug1-Cell, Drug2-Cell, Drug1-Drug2]
-        # 这里的 all_features 变成了 (B, 3, 256)，Highway网络将在这3个视图间进行交互
+        # all_features has shape (B, 3, 256).
         all_features = torch.stack([
             d1_cell_view,
             d2_cell_view,
@@ -241,17 +232,17 @@ class TMISyn(nn.Module):
         ], dim=1)  # (B, 3, 256)
 
         # Dual Interaction (Bit-wise & Vector-wise)
-        # 现在这是一个真正的 Multi-View Interaction 模块
+        # Multi-view interaction module.
         interacted_features = self.feature_interact(all_features)  # (B, 3*256)
 
         # === Confidence-Aware Dual Calibration ===
         # 1. Calculate Confidence
-        confidence = self.confidence_head(interacted_features) # (B, 1)
-        
+        confidence = self.confidence_head(interacted_features)  # (B, 1)
+
         # 2. Feature Calibration
         calibration_gate = self.feature_calibration(interacted_features)
         calibrated_features = interacted_features * calibration_gate # Element-wise scaling
-        
+
         # Prediction using calibrated features
         out = self.transform(calibrated_features)
 
@@ -270,7 +261,6 @@ if __name__ == "__main__":
     print("Model created successfully")
     print(f"Parameter count: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
 
-    # 创建测试输入数据
     batch_size = 8
     embed_dim = 128
 

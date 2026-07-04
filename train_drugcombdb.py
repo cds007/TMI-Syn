@@ -16,12 +16,10 @@ LOG_DIR = BASE_DIR / "log"
 for output_dir in (CHECKPOINT_DIR, RESULTS_DIR, LOG_DIR):
     output_dir.mkdir(parents=True, exist_ok=True)
 
-# 打印当前的CUDA_VISIBLE_DEVICES
 print(f"Before setting: CUDA_VISIBLE_DEVICES = {os.environ.get('CUDA_VISIBLE_DEVICES', 'Not set')}")
 print(f"Command line args: {sys.argv}")
 
-# 在导入torch之前设置GPU，支持命令行参数 --gpu_id
-gpu_id = "3" # 默认值
+gpu_id = "3"
 if "--gpu_id" in sys.argv:
     try:
         idx = sys.argv.index("--gpu_id")
@@ -32,11 +30,9 @@ if "--gpu_id" in sys.argv:
 
 print(f"Setting CUDA_VISIBLE_DEVICES to: {gpu_id}")
 os.environ["CUDA_VISIBLE_DEVICES"] = gpu_id
-# 强制设置，防止被覆盖
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 
 import torch
-# 检查实际使用的设备
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -46,12 +42,11 @@ from sklearn.model_selection import KFold, train_test_split
 try:
     from transformers import get_linear_schedule_with_warmup
 except ImportError:
-    # 如果transformers版本太旧，使用简单的线性调度器
     from torch.optim.lr_scheduler import LinearLR as get_linear_schedule_with_warmup
 from torch.optim import AdamW
 from early_stopping import EarlyStopping
 from log_utils import setup_logging
-from sklearn.metrics import accuracy_score, average_precision_score, roc_auc_score  # 改成分类
+from sklearn.metrics import accuracy_score, average_precision_score, roc_auc_score
 # from imblearn.metrics import sensitivity_score,specificity_score
 from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score
 from sklearn.metrics import matthews_corrcoef
@@ -66,7 +61,6 @@ from model import TMISyn
 import json
 # from data_split_standard import * # removing this import as it might not be needed or cause issues if not present
 
-# 添加matplotlib用于绘图
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
@@ -75,16 +69,11 @@ from typing import ClassVar, Sequence, Mapping
 from collections import defaultdict
 import random
 
-matplotlib.use('Agg')  # 使用非交互式后端，避免在服务器上显示问题
+matplotlib.use('Agg')
 
 
 def set_random_seed(seed=42):
-    """
-    设置随机种子以确保结果可复现
-
-    Args:
-        seed (int): 随机种子值
-    """
+    """Set random seeds for reproducible runs."""
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -127,7 +116,6 @@ class AverageMeter(object):
         self.sum = 0
         self.count = 0
 
-    # n可能会变的。
     def update(self, val, n=1):
         self.val = val
         self.sum += val * n
@@ -179,7 +167,7 @@ def read_drugcombdb_data_file(data_file):
 
 def define_dataloader(train_index, test_index, smiles_1, smiles_2, context, Y, batch_size, seed=42):
     test_index, valid_index = train_test_split(test_index, test_size=0.5, random_state=seed)
-    train_drug_2_cv = np.array(smiles_2)[train_index]  # smiles_1和smiles_2都是数组，从里面取index索引的数据作为训练集和测试集
+    train_drug_2_cv = np.array(smiles_2)[train_index]
     train_drug_1_cv = np.array(smiles_1)[train_index]
     train_context_cv = np.array(context)[train_index]
     train_Y_cv = np.array(Y)[train_index]
@@ -227,7 +215,7 @@ def define_dataloader(train_index, test_index, smiles_1, smiles_2, context, Y, b
 
 
 def validate_new(valid_loader, model):  # valid_loader
-    model.eval()  # 设为评估模式
+    model.eval()
     preds = torch.Tensor()
     trues = torch.Tensor()
     with torch.no_grad():
@@ -265,9 +253,8 @@ def validate_new(valid_loader, model):  # valid_loader
             )
 
             pre_synergy = torch.nn.functional.softmax(pre_synergy, dim=1)[:, 1]
-            preds = torch.cat((preds, pre_synergy.cpu()), 0)  # cat:多个tensor拼接。删除pre_synergy.argmax(-1)，使其一维直接输出
+            preds = torch.cat((preds, pre_synergy.cpu()), 0)
             trues = torch.cat((trues, synergyScore.view(-1, 1).cpu()), 0)
-        # 大于0.5就是协同
         y_pred = np.array(preds) > 0.5  # np.where(preds>0.5,1,0)
         accuracy = accuracy_score(trues, y_pred)
         BACC = balanced_accuracy_score(trues, y_pred)
@@ -284,10 +271,8 @@ def validate_new(valid_loader, model):  # valid_loader
 
 
 def validate_new_with_preds(valid_loader, model):  # valid_loader
-    """
-    验证模型并返回所有指标以及预测结果和真实标签
-    """
-    model.eval()  # 设为评估模式
+    """Evaluate the model and return metrics, predictions, and labels."""
+    model.eval()
     preds = torch.Tensor()
     trues = torch.Tensor()
     with torch.no_grad():
@@ -321,9 +306,8 @@ def validate_new_with_preds(valid_loader, model):  # valid_loader
             )
 
             pre_synergy = torch.nn.functional.softmax(pre_synergy, dim=1)[:, 1]
-            preds = torch.cat((preds, pre_synergy.cpu()), 0)  # cat:多个tensor拼接。删除pre_synergy.argmax(-1)，使其一维直接输出
+            preds = torch.cat((preds, pre_synergy.cpu()), 0)
             trues = torch.cat((trues, synergyScore.view(-1, 1).cpu()), 0)
-        # 大于0.5就是协同
         y_pred = np.array(preds) > 0.5  # np.where(preds>0.5,1,0)
         accuracy = accuracy_score(trues, y_pred)
         BACC = balanced_accuracy_score(trues, y_pred)
@@ -498,9 +482,9 @@ def train(train_loader, model, epoch, optimizer, device, scheduler, print_freq=2
         # Let's keep it as it stabilizes predictions.
         kl_loss = compute_kl_loss(pre_synergy, pre_synergy2)
         
-        α = 5
+        alpha_kl = 5
         # Total Loss = Task + alpha * KL + lambda * Contrastive
-        loss = ce_loss + α * kl_loss + lambda_cl * cl_loss
+        loss = ce_loss + alpha_kl * kl_loss + lambda_cl * cl_loss
 
         losses.update(loss.item(), len(compounds_1d_1))
         loss.backward()
@@ -520,10 +504,9 @@ def train(train_loader, model, epoch, optimizer, device, scheduler, print_freq=2
 
 
 def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkpoint_name='checkpoint',dataset_path='DrugCombDB/DrugCombDB.csv',lr = 1e-3,batch_size = 256, weight_decay=1e-4, dropout=0.2, lambda_c=0.1, lambda_cl=0.1):
-    # 设置随机种子以确保结果可复现
     set_random_seed(seed)
 
-    all_loss = np.zeros((5, 1))  # 5折所以初始化为5
+    all_loss = np.zeros((5, 1))
     all_accuracy = np.zeros((5, 1))
     all_report = np.zeros((5, 1))
     all_ACC = np.zeros((5, 1))
@@ -539,7 +522,7 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
     
     smiles_1, smiles_2, context, Y = read_drugcombdb_data_file(
         dataset_path)
-    kf = KFold(n_splits=5, shuffle=True, random_state=seed)  # 5折交叉验证，8:1:1划分
+    kf = KFold(n_splits=5, shuffle=True, random_state=seed)
 
     for split, (train_index, test_index) in enumerate(kf.split(Y)):
         trainLoader, validLoader, testLoader = define_dataloader(train_index, test_index, smiles_1, smiles_2, context,
@@ -588,7 +571,6 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
                 break
         
         stopper.load_checkpoint(model)
-        # test_loader测试 - 获取详细结果
         accuracy, ACC, BACC, Prec, Rec, F1, roc_auc, mcc, kappa, ap, test_preds, test_labels = validate_new_with_preds(
             testLoader, model)
 
@@ -599,7 +581,6 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
         print("\nFinal Test Results (Best Validation Model):")
         print(e_tables)
 
-        # 保存单个fold的结果到CSV（包含预测标签）
         results_dict = {
             'accuracy': accuracy,
             'ACC': ACC,
@@ -627,7 +608,6 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
         all_kappa[split] = kappa
         all_ap[split] = ap
 
-    # 计算得到K-Fold的均值
     print('*=' * 20)
     print('accuracy:  {0:6f}({1:6f})'.format(np.mean(all_accuracy), np.std(all_accuracy)))
     print('ACC:  {0:6f}({1:6f})'.format(np.mean(all_ACC), np.std(all_ACC)))
@@ -639,9 +619,7 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
     print('mcc:  {0:6f}({1:6f})'.format(np.mean(all_mcc), np.std(all_mcc)))
     print('kappa:  {0:6f}({1:6f})'.format(np.mean(all_kappa), np.std(all_kappa)))
     print('ap:  {0:6f}({1:6f})'.format(np.mean(all_ap), np.std(all_ap)))
-    # print('confuse:'.format(confuse))#增加混淆矩阵分析
 
-    # 保存K-Fold汇总结果到CSV
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     summary_filename = RESULTS_DIR / f"kfold_summary_{model_type}_{timestamp}.csv"
     
@@ -671,7 +649,6 @@ def run_expriments(device, model_type='TMI-Syn', seed=42, use_focal=True, checkp
 if __name__ == "__main__":
     import argparse
 
-    # 添加命令行参数解析
     parser = argparse.ArgumentParser(description='DrugCombDB drug synergy prediction with TMI-Syn')
     parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'],
                         help='Device to use for training')
@@ -690,12 +667,10 @@ if __name__ == "__main__":
     log_path = setup_logging(LOG_DIR / f"train_drugcombdb_seed{args.seed}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     print(f"Log file: {log_path}")
 
-    # checkpoint名称
     checkpoint_name = f'TMI-Syn_DrugCombDB_seed{args.seed}_wd{args.weight_decay}_drop{args.dropout}_lr{args.lr}_lamc{args.lambda_c}_lamcl{args.lambda_cl}'
     dataset_path = 'DrugCombDB/DrugCombDB.csv'
     batch_size = 256
     lr = args.lr
-    # 运行实验
     print(f"\n{'=' * 50}")
     print(f"Running DrugCombDB dataset with TMI-Syn")
     print(f"Device: {device}")
